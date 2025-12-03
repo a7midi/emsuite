@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "emsuite"
+version = "0.0.1"
+description = "Emergent geometry suite"
+requires-python = ">=3.10"
+
+[tool.setuptools]
+packages = ["emsuite"]
