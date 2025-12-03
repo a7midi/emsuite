@@ -11,7 +11,6 @@ from emsuite.core.projection import find_diamonds
 from emsuite.physics.entropy import entropy_growth_rate
 
 
-
 def measure_topology(graph: DiGraph) -> Dict[str, float]:
     """
     Basic topological observables on a finite digraph:
@@ -114,18 +113,6 @@ def _random_graph(n_nodes: int, edge_prob: float, rng: random.Random) -> DiGraph
                 g.add_edge(u, v)
     return g
 
-def remove_edge(self, u: Vertex, v: Vertex) -> None:
-    """
-    Remove a directed edge u -> v if it exists.
-
-    No-op if the edge is absent.
-    """
-    if u in self._succ and v in self._succ[u]:
-        self._succ[u].remove(v)
-    if v in self._pred and u in self._pred[v]:
-        self._pred[v].remove(u)
-
-
 
 def _random_grammar_for_graph(graph: DiGraph, rng: random.Random) -> Grammar:
     """
@@ -137,18 +124,56 @@ def _random_grammar_for_graph(graph: DiGraph, rng: random.Random) -> Grammar:
 
 def _entropy_score(grammar: Grammar, rng: random.Random) -> float:
     """
-    Robust wrapper around entropy_growth_rate, using the local proxy by default
-    and clamping negatives to zero. This is used purely as a *fitness signal*.
+    Robust wrapper around entropy_growth_rate.
+
+    Your entropy_growth_rate signature is:
+
+        entropy_growth_rate(grammar, visible_nodes, steps=..., seed=..., method=...)
+
+    Here we:
+      - choose visible_nodes as ALL vertices (for now),
+      - call the local/proxy method if available,
+      - clamp negatives to zero.
+
+    This is *only* a fitness signal; it does not enter any physics claims
+    directly.
     """
-    seed = rng.randint(0, 2**31 - 1)
-    # Try to call with full signature; fall back gracefully if needed.
+    g = grammar.graph
     try:
-        val = entropy_growth_rate(grammar, steps=3, seed=seed, method="local")
+        verts = list(g.vertices())
+    except AttributeError:
+        # Fallback if graph API ever changes
+        verts = list(getattr(g, "nodes", lambda: [])())
+
+    if not verts:
+        return 0.0
+
+    visible_nodes = verts  # could be a subset if you want non-trivial fibres
+    seed = rng.randint(0, 2**31 - 1)
+
+    # Try method='local' first, then progressively fall back
+    try:
+        val = entropy_growth_rate(
+            grammar,
+            visible_nodes=visible_nodes,
+            steps=3,
+            seed=seed,
+            method="local",
+        )
     except TypeError:
         try:
-            val = entropy_growth_rate(grammar, steps=3, seed=seed)
+            val = entropy_growth_rate(
+                grammar,
+                visible_nodes=visible_nodes,
+                steps=3,
+                seed=seed,
+            )
         except TypeError:
-            val = entropy_growth_rate(grammar)
+            val = entropy_growth_rate(
+                grammar,
+                visible_nodes=visible_nodes,
+            )
+
     try:
         return max(0.0, float(val))
     except Exception:
@@ -184,7 +209,12 @@ def _mutate_individual(ind: Individual, cfg: EvolutionConfig, rng: random.Random
                 all_edges.append((u, v))
         if all_edges:
             u, v = rng.choice(all_edges)
-            g_new.remove_edge(u, v)
+            # requires DiGraph.remove_edge to exist
+            try:
+                g_new.remove_edge(u, v)
+            except AttributeError:
+                # graceful fallback if remove_edge is missing
+                pass
     else:
         # add
         verts = list(g_new.vertices())
